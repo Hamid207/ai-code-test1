@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -14,6 +15,10 @@ type Config struct {
 	AppleTeamID    string
 	AppleClientID  string
 	AllowedOrigins []string
+	DatabaseURL    string
+	DBMaxConns     int32
+	DBMinConns     int32
+	JWTSecret      string
 }
 
 // Load reads configuration from environment variables
@@ -26,6 +31,10 @@ func Load() (*Config, error) {
 		AppleTeamID:    getEnv("APPLE_TEAM_ID", ""),
 		AppleClientID:  getEnv("APPLE_CLIENT_ID", ""),
 		AllowedOrigins: parseAllowedOrigins(getEnv("ALLOWED_ORIGINS", "")),
+		DatabaseURL:    getEnv("DATABASE_URL", ""),
+		DBMaxConns:     int32(getEnvAsInt("DB_MAX_CONNS", 25)),
+		DBMinConns:     int32(getEnvAsInt("DB_MIN_CONNS", 5)),
+		JWTSecret:      getEnv("JWT_SECRET", ""),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -40,6 +49,15 @@ func (c *Config) validate() error {
 	if c.AppleClientID == "" {
 		return fmt.Errorf("APPLE_CLIENT_ID is required")
 	}
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	if c.JWTSecret == "" {
+		return fmt.Errorf("JWT_SECRET is required")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters long for security")
+	}
 	return nil
 }
 
@@ -49,6 +67,21 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getEnvAsInt retrieves an environment variable as integer or returns a default value
+func getEnvAsInt(key string, defaultValue int) int {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+
+	return value
 }
 
 // parseAllowedOrigins parses comma-separated origins

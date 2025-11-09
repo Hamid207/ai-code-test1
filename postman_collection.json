@@ -1,0 +1,213 @@
+{
+  "info": {
+    "name": "Apple OAuth Backend API",
+    "description": "API endpoints for Apple OAuth authentication backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Check the health status of the service and database connectivity"
+      },
+      "response": [
+        {
+          "name": "Healthy Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"status\": \"healthy\",\n  \"database\": \"connected\"\n}"
+        },
+        {
+          "name": "Unhealthy Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "status": "Service Unavailable",
+          "code": 503,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"status\": \"unhealthy\",\n  \"database\": \"disconnected\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Sign In with Apple",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id_token\": \"eyJraWQiOiJXNldjT0tCIiwiYWxnIjoiUlMyNTYifQ.eyJpc3MiOiJodHRwczovL2FwcGxlaWQuYXBwbGUuY29tIiwiYXVkIjoiY29tLnlvdXJhcHAuaWQiLCJleHAiOjE3MzEyNzAwMDAsImlhdCI6MTczMTE4MzYwMCwic3ViIjoiMDAxMjM0LmFiY2RlZjEyMzQ1Njc4OTAuMTIzNCIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjoidHJ1ZSJ9.signature\",\n  \"nonce\": \"random-nonce-from-client-abc123xyz\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/apple",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "apple"]
+        },
+        "description": "Authenticate user using Apple ID token. The token should be obtained from Apple Sign In on the client side."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"valid_apple_jwt_token\",\n  \"nonce\": \"random-nonce-abc123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/apple",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "apple"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"user_id\": \"001234.abcdef1234567890.1234\",\n  \"email\": \"user@example.com\",\n  \"token\": null\n}"
+        },
+        {
+          "name": "Invalid Request (Missing Fields)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/apple",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "apple"]
+            }
+          },
+          "status": "Bad Request",
+          "code": 400,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"error\": \"invalid_request\",\n  \"message\": \"Key: 'AppleSignInRequest.IDToken' Error:Field validation for 'IDToken' failed on the 'required' tag\"\n}"
+        },
+        {
+          "name": "Authentication Failed",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"invalid_or_expired_token\",\n  \"nonce\": \"some-nonce\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/apple",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "apple"]
+            }
+          },
+          "status": "Unauthorized",
+          "code": 401,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"error\": \"authentication_failed\",\n  \"message\": \"Invalid or expired token\"\n}"
+        }
+      ]
+    }
+  ]
+}

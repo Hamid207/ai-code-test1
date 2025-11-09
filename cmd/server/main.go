@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/Hamid207/ai-code-test1/internal/handler"
+	"github.com/Hamid207/ai-code-test1/internal/repository"
 	"github.com/Hamid207/ai-code-test1/internal/service"
 	"github.com/Hamid207/ai-code-test1/pkg/config"
+	"github.com/Hamid207/ai-code-test1/pkg/database"
+	"github.com/Hamid207/ai-code-test1/pkg/jwt"
 	"github.com/Hamid207/ai-code-test1/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/ulule/limiter/v3"
@@ -33,11 +36,32 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Initialize database connection pool
+	// Use a timeout context for initial connection
+	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	poolConfig := database.PoolConfig{
+		MaxConns: cfg.DBMaxConns,
+		MinConns: cfg.DBMinConns,
+	}
+	dbPool, err := database.NewPool(initCtx, cfg.DatabaseURL, poolConfig)
+	initCancel() // Cancel after connection is established
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	log.Printf("Database connection established successfully (Max: %d, Min: %d)", cfg.DBMaxConns, cfg.DBMinConns)
+
+	// Initialize repositories
+	userRepo := repository.NewUserRepository(dbPool)
+	tokenRepo := repository.NewTokenRepository(dbPool)
+
+	// Initialize JWT token service
+	tokenService := jwt.NewTokenService(cfg.JWTSecret)
+
 	// Initialize services
-	authService := service.NewAuthService(cfg.AppleClientID)
+	authService := service.NewAuthService(cfg.AppleClientID, userRepo, tokenRepo, tokenService)
 
 	// Initialize handlers
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService, dbPool)
 
 	// Setup router
 	router := setupRouter(authHandler, cfg)
@@ -65,12 +89,16 @@ func main() {
 	log.Println("Shutting down server...")
 
 	// Give outstanding requests 5 seconds to complete
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
+
+	// Close database pool after server shutdown
+	log.Println("Closing database connections...")
+	dbPool.Close()
 
 	log.Println("Server exited gracefully")
 }
@@ -107,6 +135,7 @@ func setupRouter(authHandler *handler.AuthHandler, cfg *config.Config) *gin.Engi
 		auth.Use(rateLimitMiddleware)
 		{
 			auth.POST("/apple", authHandler.SignInWithApple)
+			auth.POST("/refresh", authHandler.RefreshToken)
 		}
 	}
 

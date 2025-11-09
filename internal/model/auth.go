@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // AppleSignInRequest represents the request body for Apple sign-in
 type AppleSignInRequest struct {
 	IDToken string `json:"id_token" binding:"required"`
@@ -8,9 +10,28 @@ type AppleSignInRequest struct {
 
 // AppleSignInResponse represents the response after successful authentication
 type AppleSignInResponse struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Token  string `json:"token,omitempty"`
+	UserID                int64     `json:"user_id"`
+	AppleID               string    `json:"apple_id"`
+	Email                 string    `json:"email"`
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"`
+	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	TokenType             string    `json:"token_type"` // Always "Bearer"
+}
+
+// RefreshTokenRequest represents the request body for token refresh
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// RefreshTokenResponse represents the response after successful token refresh
+type RefreshTokenResponse struct {
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"` // New refresh token (rotation)
+	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	TokenType             string    `json:"token_type"` // Always "Bearer"
 }
 
 // ErrorResponse represents an error response
