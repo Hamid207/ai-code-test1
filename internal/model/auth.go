@@ -27,9 +27,11 @@ type RefreshTokenRequest struct {
 
 // RefreshTokenResponse represents the response after successful token refresh
 type RefreshTokenResponse struct {
-	AccessToken          string    `json:"access_token"`
-	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
-	TokenType            string    `json:"token_type"` // Always "Bearer"
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"` // New refresh token (rotation)
+	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	TokenType             string    `json:"token_type"` // Always "Bearer"
 }
 
 // ErrorResponse represents an error response

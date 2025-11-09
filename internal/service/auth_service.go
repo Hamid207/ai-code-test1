@@ -79,7 +79,8 @@ func (s *AuthService) SignInWithApple(ctx context.Context, req *model.AppleSignI
 	return response, nil
 }
 
-// RefreshAccessToken generates a new access token using a refresh token
+// RefreshAccessToken generates new access AND refresh tokens (token rotation)
+// This implements refresh token rotation for security - old token is revoked
 func (s *AuthService) RefreshAccessToken(ctx context.Context, req *model.RefreshTokenRequest) (*model.RefreshTokenResponse, error) {
 	// Validate refresh token (JWT validation)
 	claims, err := s.tokenService.ValidateRefreshToken(req.RefreshToken)
@@ -98,20 +99,36 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, req *model.Refresh
 		return nil, fmt.Errorf("user ID mismatch")
 	}
 
-	// Generate new access token (only)
-	accessToken, expiresAt, err := s.tokenService.GenerateAccessToken(
+	// CRITICAL: Revoke the old refresh token BEFORE generating new ones
+	// This prevents reuse of stolen tokens
+	err = s.tokenRepository.RevokeRefreshToken(ctx, req.RefreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to revoke old refresh token: %w", err)
+	}
+
+	// Generate NEW token pair (access + refresh) - TOKEN ROTATION
+	tokenPair, err := s.tokenService.GenerateTokenPair(
 		claims.UserID,
 		claims.AppleID,
 		claims.Email,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
+		return nil, fmt.Errorf("failed to generate new token pair: %w", err)
 	}
 
+	// Store the NEW refresh token in database
+	err = s.tokenRepository.StoreRefreshToken(ctx, userID, tokenPair.RefreshToken, tokenPair.RefreshTokenExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to store new refresh token: %w", err)
+	}
+
+	// Return BOTH new access and refresh tokens
 	response := &model.RefreshTokenResponse{
-		AccessToken:          accessToken,
-		AccessTokenExpiresAt: expiresAt,
-		TokenType:            "Bearer",
+		AccessToken:           tokenPair.AccessToken,
+		RefreshToken:          tokenPair.RefreshToken,
+		AccessTokenExpiresAt:  tokenPair.AccessTokenExpiresAt,
+		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
+		TokenType:             "Bearer",
 	}
 
 	return response, nil

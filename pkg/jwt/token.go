@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // TokenType represents the type of JWT token
@@ -76,16 +77,21 @@ func (s *TokenService) generateToken(userID int64, appleID, email string, tokenT
 	now := time.Now()
 	expiresAt := now.Add(duration)
 
+	// Generate unique token ID for tracking and revocation
+	tokenID := uuid.New().String()
+
 	claims := TokenClaims{
 		UserID:    userID,
 		AppleID:   appleID,
 		Email:     email,
 		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        tokenID, // JWT ID (jti) - unique identifier
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    "apple-oauth-backend",
+			Audience:  jwt.ClaimStrings{"apple-oauth-client"}, // Added audience claim
 		},
 	}
 
@@ -132,4 +138,14 @@ func (s *TokenService) ValidateRefreshToken(tokenString string) (*TokenClaims, e
 	}
 
 	return claims, nil
+}
+
+// GetTokenID extracts the JWT ID (jti) from a token without full validation
+// Used for database lookups before revocation
+func (s *TokenService) GetTokenID(tokenString string) (string, error) {
+	claims, err := s.ValidateToken(tokenString)
+	if err != nil {
+		return "", err
+	}
+	return claims.ID, nil
 }
