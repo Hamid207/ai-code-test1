@@ -15,6 +15,7 @@ import (
 	"github.com/Hamid207/ai-code-test1/internal/service"
 	"github.com/Hamid207/ai-code-test1/pkg/config"
 	"github.com/Hamid207/ai-code-test1/pkg/database"
+	"github.com/Hamid207/ai-code-test1/pkg/jwt"
 	"github.com/Hamid207/ai-code-test1/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/ulule/limiter/v3"
@@ -51,9 +52,13 @@ func main() {
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(dbPool)
+	tokenRepo := repository.NewTokenRepository(dbPool)
+
+	// Initialize JWT token service
+	tokenService := jwt.NewTokenService(cfg.JWTSecret)
 
 	// Initialize services
-	authService := service.NewAuthService(cfg.AppleClientID, userRepo)
+	authService := service.NewAuthService(cfg.AppleClientID, userRepo, tokenRepo, tokenService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, dbPool)
@@ -130,6 +135,7 @@ func setupRouter(authHandler *handler.AuthHandler, cfg *config.Config) *gin.Engi
 		auth.Use(rateLimitMiddleware)
 		{
 			auth.POST("/apple", authHandler.SignInWithApple)
+			auth.POST("/refresh", authHandler.RefreshToken)
 		}
 	}
 

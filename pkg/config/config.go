@@ -18,6 +18,7 @@ type Config struct {
 	DatabaseURL    string
 	DBMaxConns     int32
 	DBMinConns     int32
+	JWTSecret      string
 }
 
 // Load reads configuration from environment variables
@@ -33,6 +34,7 @@ func Load() (*Config, error) {
 		DatabaseURL:    getEnv("DATABASE_URL", ""),
 		DBMaxConns:     int32(getEnvAsInt("DB_MAX_CONNS", 25)),
 		DBMinConns:     int32(getEnvAsInt("DB_MIN_CONNS", 5)),
+		JWTSecret:      getEnv("JWT_SECRET", ""),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -49,6 +51,12 @@ func (c *Config) validate() error {
 	}
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
+	}
+	if c.JWTSecret == "" {
+		return fmt.Errorf("JWT_SECRET is required")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters long for security")
 	}
 	return nil
 }
