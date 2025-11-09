@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -15,6 +16,8 @@ type Config struct {
 	AppleClientID  string
 	AllowedOrigins []string
 	DatabaseURL    string
+	DBMaxConns     int32
+	DBMinConns     int32
 }
 
 // Load reads configuration from environment variables
@@ -28,6 +31,8 @@ func Load() (*Config, error) {
 		AppleClientID:  getEnv("APPLE_CLIENT_ID", ""),
 		AllowedOrigins: parseAllowedOrigins(getEnv("ALLOWED_ORIGINS", "")),
 		DatabaseURL:    getEnv("DATABASE_URL", ""),
+		DBMaxConns:     int32(getEnvAsInt("DB_MAX_CONNS", 25)),
+		DBMinConns:     int32(getEnvAsInt("DB_MIN_CONNS", 5)),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -54,6 +59,21 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getEnvAsInt retrieves an environment variable as integer or returns a default value
+func getEnvAsInt(key string, defaultValue int) int {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+
+	return value
 }
 
 // parseAllowedOrigins parses comma-separated origins

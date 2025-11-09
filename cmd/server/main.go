@@ -36,13 +36,18 @@ func main() {
 	}
 
 	// Initialize database connection pool
-	ctx := context.Background()
-	dbPool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	// Use a timeout context for initial connection
+	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	poolConfig := database.PoolConfig{
+		MaxConns: cfg.DBMaxConns,
+		MinConns: cfg.DBMinConns,
+	}
+	dbPool, err := database.NewPool(initCtx, cfg.DatabaseURL, poolConfig)
+	initCancel() // Cancel after connection is established
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer dbPool.Close()
-	log.Println("Database connection established successfully")
+	log.Printf("Database connection established successfully (Max: %d, Min: %d)", cfg.DBMaxConns, cfg.DBMinConns)
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(dbPool)
@@ -51,7 +56,7 @@ func main() {
 	authService := service.NewAuthService(cfg.AppleClientID, userRepo)
 
 	// Initialize handlers
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService, dbPool)
 
 	// Setup router
 	router := setupRouter(authHandler, cfg)
@@ -79,12 +84,16 @@ func main() {
 	log.Println("Shutting down server...")
 
 	// Give outstanding requests 5 seconds to complete
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
+
+	// Close database pool after server shutdown
+	log.Println("Closing database connections...")
+	dbPool.Close()
 
 	log.Println("Server exited gracefully")
 }

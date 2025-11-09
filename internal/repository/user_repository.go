@@ -3,10 +3,17 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Hamid207/ai-code-test1/internal/model"
+	"github.com/Hamid207/ai-code-test1/pkg/validator"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	// DefaultQueryTimeout is the default timeout for database queries
+	DefaultQueryTimeout = 5 * time.Second
 )
 
 // UserRepository handles database operations for users
@@ -23,6 +30,10 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 
 // GetByAppleID retrieves a user by their Apple ID
 func (r *UserRepository) GetByAppleID(ctx context.Context, appleID string) (*model.User, error) {
+	// Create context with timeout to prevent hanging queries
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, apple_id, email, created_at, updated_at
 		FROM users
@@ -51,6 +62,10 @@ func (r *UserRepository) GetByAppleID(ctx context.Context, appleID string) (*mod
 
 // Create creates a new user in the database
 func (r *UserRepository) Create(ctx context.Context, appleID, email string) (*model.User, error) {
+	// Create context with timeout to prevent hanging queries
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
 	query := `
 		INSERT INTO users (apple_id, email)
 		VALUES ($1, $2)
@@ -73,38 +88,45 @@ func (r *UserRepository) Create(ctx context.Context, appleID, email string) (*mo
 	return &user, nil
 }
 
-// CreateOrGet creates a new user or returns existing user (upsert pattern)
+// CreateOrGet creates a new user or returns existing user (atomic upsert)
+// This uses PostgreSQL's ON CONFLICT to prevent race conditions
 func (r *UserRepository) CreateOrGet(ctx context.Context, appleID, email string) (*model.User, error) {
-	// First, try to get the existing user
-	user, err := r.GetByAppleID(ctx, appleID)
+	// Validate input
+	if err := validator.ValidateAppleID(appleID); err != nil {
+		return nil, fmt.Errorf("invalid apple_id: %w", err)
+	}
+
+	if err := validator.ValidateEmail(email); err != nil {
+		return nil, fmt.Errorf("invalid email: %w", err)
+	}
+
+	// Create context with timeout to prevent hanging queries
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	// Use PostgreSQL UPSERT to handle concurrent inserts atomically
+	query := `
+		INSERT INTO users (apple_id, email)
+		VALUES ($1, $2)
+		ON CONFLICT (apple_id)
+		DO UPDATE SET
+			email = EXCLUDED.email,
+			updated_at = CURRENT_TIMESTAMP
+		RETURNING id, apple_id, email, created_at, updated_at
+	`
+
+	var user model.User
+	err := r.db.QueryRow(ctx, query, appleID, email).Scan(
+		&user.ID,
+		&user.AppleID,
+		&user.Email,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create or update user: %w", err)
 	}
 
-	// If user exists, return it
-	if user != nil {
-		// Update email if it changed
-		if user.Email != email {
-			query := `
-				UPDATE users
-				SET email = $1
-				WHERE apple_id = $2
-				RETURNING id, apple_id, email, created_at, updated_at
-			`
-			err := r.db.QueryRow(ctx, query, email, appleID).Scan(
-				&user.ID,
-				&user.AppleID,
-				&user.Email,
-				&user.CreatedAt,
-				&user.UpdatedAt,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to update user email: %w", err)
-			}
-		}
-		return user, nil
-	}
-
-	// User doesn't exist, create new one
-	return r.Create(ctx, appleID, email)
+	return &user, nil
 }

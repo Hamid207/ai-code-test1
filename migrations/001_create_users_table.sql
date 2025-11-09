@@ -1,16 +1,13 @@
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
-    apple_id VARCHAR(255) NOT NULL UNIQUE,
+    apple_id VARCHAR(255) NOT NULL UNIQUE,  -- UNIQUE constraint creates an index automatically
     email VARCHAR(255) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index on apple_id for faster lookups
-CREATE INDEX IF NOT EXISTS idx_users_apple_id ON users(apple_id);
-
--- Create index on email for faster lookups
+-- Create index on email for faster lookups (no index on apple_id needed - UNIQUE creates it)
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Create function to automatically update updated_at timestamp

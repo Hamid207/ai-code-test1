@@ -1,23 +1,28 @@
 package handler
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Hamid207/ai-code-test1/internal/model"
 	"github.com/Hamid207/ai-code-test1/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // AuthHandler handles authentication-related HTTP requests
 type AuthHandler struct {
 	authService *service.AuthService
+	dbPool      *pgxpool.Pool
 }
 
 // NewAuthHandler creates a new authentication handler
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
+func NewAuthHandler(authService *service.AuthService, dbPool *pgxpool.Pool) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
+		dbPool:      dbPool,
 	}
 }
 
@@ -63,7 +68,21 @@ func (h *AuthHandler) SignInWithApple(c *gin.Context) {
 
 // HealthCheck returns the health status of the service
 func (h *AuthHandler) HealthCheck(c *gin.Context) {
+	// Check database connectivity with timeout
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := h.dbPool.Ping(ctx); err != nil {
+		log.Printf("Health check failed: database ping error: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status":   "unhealthy",
+			"database": "disconnected",
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"status": "healthy",
+		"status":   "healthy",
+		"database": "connected",
 	})
 }
