@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/Hamid207/ai-code-test1/internal/handler"
+	"github.com/Hamid207/ai-code-test1/internal/repository"
 	"github.com/Hamid207/ai-code-test1/internal/service"
 	"github.com/Hamid207/ai-code-test1/pkg/config"
+	"github.com/Hamid207/ai-code-test1/pkg/database"
 	"github.com/Hamid207/ai-code-test1/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/ulule/limiter/v3"
@@ -33,8 +35,20 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Initialize database connection pool
+	ctx := context.Background()
+	dbPool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer dbPool.Close()
+	log.Println("Database connection established successfully")
+
+	// Initialize repositories
+	userRepo := repository.NewUserRepository(dbPool)
+
 	// Initialize services
-	authService := service.NewAuthService(cfg.AppleClientID)
+	authService := service.NewAuthService(cfg.AppleClientID, userRepo)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)

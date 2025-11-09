@@ -5,7 +5,9 @@ Clean, production-ready Go backend service for Apple OAuth authentication.
 ## Features
 
 - ✅ Apple Sign In with ID Token verification
-- ✅ Clean architecture (handlers, services, models)
+- ✅ PostgreSQL database integration with pgxpool
+- ✅ Automatic user creation/update on login
+- ✅ Clean architecture (handlers, services, repositories, models)
 - ✅ JWT token validation with Apple's public keys
 - ✅ Nonce verification for security
 - ✅ RESTful API design
@@ -21,10 +23,14 @@ Clean, production-ready Go backend service for Apple OAuth authentication.
 ├── internal/
 │   ├── handler/         # HTTP handlers
 │   ├── service/         # Business logic
+│   ├── repository/      # Database operations
 │   └── model/          # Data models
 ├── pkg/
 │   ├── config/         # Configuration management
-│   └── apple/          # Apple OAuth verification
+│   ├── database/       # Database connection pool
+│   ├── apple/          # Apple OAuth verification
+│   └── logger/         # Structured logging
+├── migrations/         # Database migrations
 ├── .env.example        # Environment variables template
 ├── Makefile           # Build and run commands
 └── README.md
@@ -33,20 +39,32 @@ Clean, production-ready Go backend service for Apple OAuth authentication.
 ## Prerequisites
 
 - Go 1.24.7 or higher
+- PostgreSQL 12 or higher
 - Apple Developer account with configured Sign In with Apple
 
 ## Configuration
 
-1. Copy the example environment file:
+1. Set up PostgreSQL database:
+```bash
+# Create a new database
+createdb apple_auth
+
+# Run migrations
+psql -d apple_auth -f migrations/001_create_users_table.sql
+```
+
+2. Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
 
-2. Update `.env` with your Apple OAuth credentials:
+3. Update `.env` with your configuration:
 ```env
 SERVER_PORT=8080
 APPLE_CLIENT_ID=your.apple.client.id
 APPLE_TEAM_ID=your_team_id
+DATABASE_URL=postgres://username:password@localhost:5432/apple_auth?sslmode=disable
+ALLOWED_ORIGINS=http://localhost:3000
 ```
 
 ## Installation
@@ -123,7 +141,11 @@ Response (Error - 401):
    - Verifies issuer is Apple
    - Validates audience matches your client ID
    - Confirms nonce matches
-4. **Response** returns user information from verified token
+4. **Database** operation:
+   - Checks if user exists by Apple ID
+   - Creates new user if not exists
+   - Updates email if changed
+5. **Response** returns user information from verified token
 
 ## Security Features
 

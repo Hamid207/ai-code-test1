@@ -45,7 +45,7 @@ func (h *AuthHandler) SignInWithApple(c *gin.Context) {
 	}
 
 	// Process authentication
-	response, err := h.authService.SignInWithApple(&req)
+	response, err := h.authService.SignInWithApple(c.Request.Context(), &req)
 	if err != nil {
 		// Log internal error for debugging (do not expose to client)
 		log.Printf("Authentication failed: %v", err)

@@ -14,6 +14,7 @@ type Config struct {
 	AppleTeamID    string
 	AppleClientID  string
 	AllowedOrigins []string
+	DatabaseURL    string
 }
 
 // Load reads configuration from environment variables
@@ -26,6 +27,7 @@ func Load() (*Config, error) {
 		AppleTeamID:    getEnv("APPLE_TEAM_ID", ""),
 		AppleClientID:  getEnv("APPLE_CLIENT_ID", ""),
 		AllowedOrigins: parseAllowedOrigins(getEnv("ALLOWED_ORIGINS", "")),
+		DatabaseURL:    getEnv("DATABASE_URL", ""),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -39,6 +41,9 @@ func Load() (*Config, error) {
 func (c *Config) validate() error {
 	if c.AppleClientID == "" {
 		return fmt.Errorf("APPLE_CLIENT_ID is required")
+	}
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
 	}
 	return nil
 }
