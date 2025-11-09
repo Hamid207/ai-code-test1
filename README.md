@@ -87,6 +87,14 @@ make build
 ./bin/server
 ```
 
+## API Documentation
+
+📖 **[Full API Documentation](./API_DOCUMENTATION.md)**
+
+📮 **[Postman Collection](./postman_collection.json)** - Import into Postman for easy testing
+
+### Quick Reference
+
 ## API Endpoints
 
 ### Health Check
