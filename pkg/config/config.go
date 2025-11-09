@@ -19,6 +19,13 @@ type Config struct {
 	DBMaxConns     int32
 	DBMinConns     int32
 	JWTSecret      string
+	// Redis configuration
+	RedisHost        string
+	RedisPort        string
+	RedisDB          int
+	RedisPassword    string
+	RedisMaxConns    int
+	RedisMinIdleConns int
 }
 
 // Load reads configuration from environment variables
@@ -35,6 +42,13 @@ func Load() (*Config, error) {
 		DBMaxConns:     int32(getEnvAsInt("DB_MAX_CONNS", 25)),
 		DBMinConns:     int32(getEnvAsInt("DB_MIN_CONNS", 5)),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
+		// Redis configuration
+		RedisHost:        getEnv("REDIS_HOST", "localhost"),
+		RedisPort:        getEnv("REDIS_PORT", "6379"),
+		RedisDB:          getEnvAsInt("REDIS_DB", 0),
+		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
+		RedisMaxConns:    getEnvAsInt("REDIS_MAX_CONNS", 10),
+		RedisMinIdleConns: getEnvAsInt("REDIS_MIN_IDLE_CONNS", 2),
 	}
 
 	if err := cfg.validate(); err != nil {
