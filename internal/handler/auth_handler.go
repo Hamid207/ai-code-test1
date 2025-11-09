@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/Hamid207/ai-code-test1/internal/model"
@@ -46,9 +47,13 @@ func (h *AuthHandler) SignInWithApple(c *gin.Context) {
 	// Process authentication
 	response, err := h.authService.SignInWithApple(&req)
 	if err != nil {
+		// Log internal error for debugging (do not expose to client)
+		log.Printf("Authentication failed: %v", err)
+
+		// Return generic error message to prevent information disclosure
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{
 			Error:   "authentication_failed",
-			Message: err.Error(),
+			Message: "Invalid or expired token",
 		})
 		return
 	}

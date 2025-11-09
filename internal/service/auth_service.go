@@ -27,6 +27,11 @@ func (s *AuthService) SignInWithApple(req *model.AppleSignInRequest) (*model.App
 		return nil, fmt.Errorf("failed to verify token: %w", err)
 	}
 
+	// Verify email is confirmed (security best practice)
+	if claims.EmailVerified != "true" {
+		return nil, fmt.Errorf("email not verified by Apple")
+	}
+
 	// Extract user information from claims
 	response := &model.AppleSignInResponse{
 		UserID: claims.Subject,

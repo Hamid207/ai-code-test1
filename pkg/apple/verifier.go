@@ -9,14 +9,16 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
-	applePublicKeyURL = "https://appleid.apple.com/auth/keys"
-	appleIssuer       = "https://appleid.apple.com"
+	applePublicKeyURL   = "https://appleid.apple.com/auth/keys"
+	appleIssuer         = "https://appleid.apple.com"
+	maxResponseBodySize = 1024 * 1024 // 1MB limit for response body
 )
 
 // ApplePublicKeys represents Apple's public keys response
@@ -45,16 +47,21 @@ type AppleClaims struct {
 
 // Verifier handles Apple ID token verification
 type Verifier struct {
-	clientID string
-	keys     map[string]*rsa.PublicKey
-	lastFetch time.Time
+	clientID   string
+	httpClient *http.Client
+	mu         sync.RWMutex
+	keys       map[string]*rsa.PublicKey
+	lastFetch  time.Time
 }
 
 // NewVerifier creates a new Apple token verifier
 func NewVerifier(clientID string) *Verifier {
 	return &Verifier{
 		clientID: clientID,
-		keys:     make(map[string]*rsa.PublicKey),
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second, // Prevent hanging requests
+		},
+		keys: make(map[string]*rsa.PublicKey),
 	}
 }
 
@@ -78,8 +85,11 @@ func (v *Verifier) VerifyIDToken(idToken, expectedNonce string) (*AppleClaims, e
 			return nil, fmt.Errorf("failed to fetch public keys: %w", err)
 		}
 
-		// Get the public key for this kid
+		// Get the public key for this kid (with read lock)
+		v.mu.RLock()
 		publicKey, ok := v.keys[kid]
+		v.mu.RUnlock()
+
 		if !ok {
 			return nil, fmt.Errorf("public key not found for kid: %s", kid)
 		}
@@ -103,17 +113,30 @@ func (v *Verifier) VerifyIDToken(idToken, expectedNonce string) (*AppleClaims, e
 	}
 
 	// Validate audience (client ID)
-	if !claims.VerifyAudience(v.clientID, true) {
+	validAudience := false
+	for _, aud := range claims.Audience {
+		if aud == v.clientID {
+			validAudience = true
+			break
+		}
+	}
+	if !validAudience {
 		return nil, errors.New("invalid audience")
 	}
 
 	// Validate expiration
-	if !claims.VerifyExpiresAt(time.Now(), true) {
+	if claims.ExpiresAt == nil || claims.ExpiresAt.Time.Before(time.Now()) {
 		return nil, errors.New("token expired")
 	}
 
-	// Validate nonce
-	if expectedNonce != "" && claims.Nonce != expectedNonce {
+	// Validate nonce (REQUIRED - prevent replay attacks)
+	if expectedNonce == "" {
+		return nil, errors.New("nonce is required for security")
+	}
+	if claims.Nonce == "" {
+		return nil, errors.New("token missing nonce claim")
+	}
+	if claims.Nonce != expectedNonce {
 		return nil, errors.New("nonce mismatch")
 	}
 
@@ -122,8 +145,12 @@ func (v *Verifier) VerifyIDToken(idToken, expectedNonce string) (*AppleClaims, e
 
 // refreshKeysIfNeeded fetches Apple's public keys if cache is stale
 func (v *Verifier) refreshKeysIfNeeded() error {
-	// Refresh keys every 24 hours or if not yet fetched
-	if time.Since(v.lastFetch) < 24*time.Hour && len(v.keys) > 0 {
+	// Check if refresh needed (with read lock)
+	v.mu.RLock()
+	needsRefresh := time.Since(v.lastFetch) >= 24*time.Hour || len(v.keys) == 0
+	v.mu.RUnlock()
+
+	if !needsRefresh {
 		return nil
 	}
 
@@ -132,7 +159,7 @@ func (v *Verifier) refreshKeysIfNeeded() error {
 
 // fetchPublicKeys retrieves Apple's public keys
 func (v *Verifier) fetchPublicKeys() error {
-	resp, err := http.Get(applePublicKeyURL)
+	resp, err := v.httpClient.Get(applePublicKeyURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch keys: %w", err)
 	}
@@ -142,7 +169,9 @@ func (v *Verifier) fetchPublicKeys() error {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Limit response body size to prevent memory exhaustion attacks
+	limitedReader := io.LimitReader(resp.Body, maxResponseBodySize)
+	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
@@ -152,9 +181,19 @@ func (v *Verifier) fetchPublicKeys() error {
 		return fmt.Errorf("failed to unmarshal keys: %w", err)
 	}
 
-	// Convert Apple's JWK to RSA public keys
+	// Convert Apple's JWK to RSA public keys (with validation)
 	newKeys := make(map[string]*rsa.PublicKey)
 	for _, key := range appleKeys.Keys {
+		// Validate key type and algorithm
+		if key.Kty != "RSA" {
+			// Skip non-RSA keys
+			continue
+		}
+		if key.Alg != "RS256" {
+			// Skip keys with unsupported algorithm
+			continue
+		}
+
 		publicKey, err := jwkToRSAPublicKey(key)
 		if err != nil {
 			return fmt.Errorf("failed to convert key %s: %w", key.Kid, err)
@@ -162,8 +201,11 @@ func (v *Verifier) fetchPublicKeys() error {
 		newKeys[key.Kid] = publicKey
 	}
 
+	// Update keys and lastFetch with write lock
+	v.mu.Lock()
 	v.keys = newKeys
 	v.lastFetch = time.Now()
+	v.mu.Unlock()
 
 	return nil
 }
