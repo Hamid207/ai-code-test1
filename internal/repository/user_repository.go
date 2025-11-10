@@ -207,8 +207,8 @@ func (r *UserRepository) CreateOrGet(ctx context.Context, appleID, email string)
 // This prevents duplicate accounts when users sign in with different providers
 func (r *UserRepository) CreateOrGetWithGoogle(ctx context.Context, googleID, email string) (*model.User, error) {
 	// Validate input
-	if googleID == "" {
-		return nil, fmt.Errorf("google_id cannot be empty")
+	if err := validator.ValidateGoogleID(googleID); err != nil {
+		return nil, fmt.Errorf("invalid google_id: %w", err)
 	}
 
 	if err := validator.ValidateEmail(email); err != nil {
