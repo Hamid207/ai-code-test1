@@ -144,8 +144,9 @@ func (v *Verifier) VerifyIDToken(idToken, expectedNonce string) (*AppleClaims, e
 }
 
 // refreshKeysIfNeeded fetches Apple's public keys if cache is stale
+// Uses double-checked locking to prevent multiple concurrent fetches
 func (v *Verifier) refreshKeysIfNeeded() error {
-	// Check if refresh needed (with read lock)
+	// First check (with read lock) - fast path
 	v.mu.RLock()
 	needsRefresh := time.Since(v.lastFetch) >= 24*time.Hour || len(v.keys) == 0
 	v.mu.RUnlock()
@@ -154,11 +155,24 @@ func (v *Verifier) refreshKeysIfNeeded() error {
 		return nil
 	}
 
-	return v.fetchPublicKeys()
+	// Acquire write lock for second check
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	// Second check (with write lock) - prevents race condition
+	// Another goroutine may have already fetched keys while we were waiting for the lock
+	needsRefresh = time.Since(v.lastFetch) >= 24*time.Hour || len(v.keys) == 0
+	if !needsRefresh {
+		return nil
+	}
+
+	// Only one goroutine reaches here and fetches keys
+	return v.fetchPublicKeysLocked()
 }
 
-// fetchPublicKeys retrieves Apple's public keys
-func (v *Verifier) fetchPublicKeys() error {
+// fetchPublicKeysLocked retrieves Apple's public keys
+// IMPORTANT: Caller must hold write lock (v.mu.Lock) before calling this method
+func (v *Verifier) fetchPublicKeysLocked() error {
 	resp, err := v.httpClient.Get(applePublicKeyURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch keys: %w", err)
@@ -201,11 +215,9 @@ func (v *Verifier) fetchPublicKeys() error {
 		newKeys[key.Kid] = publicKey
 	}
 
-	// Update keys and lastFetch with write lock
-	v.mu.Lock()
+	// Update keys and lastFetch (caller already holds write lock)
 	v.keys = newKeys
 	v.lastFetch = time.Now()
-	v.mu.Unlock()
 
 	return nil
 }
