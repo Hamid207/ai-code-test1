@@ -14,6 +14,7 @@ type Config struct {
 	ServerPort     string
 	AppleTeamID    string
 	AppleClientID  string
+	GoogleClientID string
 	AllowedOrigins []string
 	DatabaseURL    string
 	DBMaxConns     int32
@@ -37,6 +38,7 @@ func Load() (*Config, error) {
 		ServerPort:     getEnv("SERVER_PORT", "8080"),
 		AppleTeamID:    getEnv("APPLE_TEAM_ID", ""),
 		AppleClientID:  getEnv("APPLE_CLIENT_ID", ""),
+		GoogleClientID: getEnv("GOOGLE_CLIENT_ID", ""),
 		AllowedOrigins: parseAllowedOrigins(getEnv("ALLOWED_ORIGINS", "")),
 		DatabaseURL:    getEnv("DATABASE_URL", ""),
 		DBMaxConns:     int32(getEnvAsInt("DB_MAX_CONNS", 25)),
@@ -60,8 +62,9 @@ func Load() (*Config, error) {
 
 // validate ensures required configuration is present
 func (c *Config) validate() error {
-	if c.AppleClientID == "" {
-		return fmt.Errorf("APPLE_CLIENT_ID is required")
+	// At least one OAuth provider must be configured
+	if c.AppleClientID == "" && c.GoogleClientID == "" {
+		return fmt.Errorf("at least one OAuth provider (APPLE_CLIENT_ID or GOOGLE_CLIENT_ID) is required")
 	}
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")

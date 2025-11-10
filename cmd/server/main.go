@@ -81,7 +81,7 @@ func main() {
 	tokenService := jwt.NewTokenService(cfg.JWTSecret)
 
 	// Initialize services
-	authService := service.NewAuthService(cfg.AppleClientID, userRepo, tokenRepo, tokenService)
+	authService := service.NewAuthService(cfg.AppleClientID, cfg.GoogleClientID, userRepo, tokenRepo, tokenService)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, dbPool)
@@ -164,6 +164,7 @@ func setupRouter(authHandler *handler.AuthHandler, cfg *config.Config) *gin.Engi
 		auth.Use(rateLimitMiddleware)
 		{
 			auth.POST("/apple", authHandler.SignInWithApple)
+			auth.POST("/google", authHandler.SignInWithGoogle)
 			auth.POST("/refresh", authHandler.RefreshToken)
 		}
 	}
