@@ -27,8 +27,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # Stage 2: Create minimal runtime image
 FROM alpine:3.19
 
-# Install ca-certificates for HTTPS requests and tzdata for timezone support
-RUN apk add --no-cache ca-certificates tzdata
+# Install ca-certificates for HTTPS requests, tzdata for timezone support, and curl for healthcheck
+RUN apk add --no-cache ca-certificates tzdata curl
 
 # Create non-root user for security
 RUN addgroup -g 1000 appuser && \
@@ -51,7 +51,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
 CMD ["/app/server"]
