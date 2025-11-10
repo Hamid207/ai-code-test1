@@ -1,0 +1,154 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ios-backend-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      # CRITICAL SECURITY: No default password! Must be set in .env file
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Error: DB_PASSWORD must be set in .env file}
+      POSTGRES_DB: ${DB_NAME:-ios_backend}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    # SECURITY: Comment out ports in production (only expose to internal network)
+    # For development, uncomment the line below:
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d  # Optional: for init scripts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ios_backend}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ios-backend-redis
+    restart: unless-stopped
+    environment:
+      # Pass password to healthcheck
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Error: REDIS_PASSWORD must be set in .env file}
+    command: >
+      sh -c "redis-server
+      --requirepass $${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec"
+    # SECURITY: Comment out ports in production (only expose to internal network)
+    # For development, uncomment the line below:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      # Fixed: Use password for authentication
+      test: ["CMD", "sh", "-c", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - backend
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Go Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ios-backend-app
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      # Server Configuration
+      SERVER_PORT: ${SERVER_PORT:-8080}
+
+      # Database Configuration
+      # SSL mode: use 'disable' for local dev, 'require' for production
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ios_backend}?sslmode=${DB_SSL_MODE:-disable}
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-25}
+      DB_MIN_CONNS: ${DB_MIN_CONNS:-5}
+
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_MAX_CONNS: ${REDIS_MAX_CONNS:-10}
+      REDIS_MIN_IDLE_CONNS: ${REDIS_MIN_IDLE_CONNS:-2}
+
+      # OAuth Configuration
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+
+      # CORS Configuration
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Optional: Mount for live development
+    # volumes:
+    #   - .:/app
+
+networks:
+  backend:
+    driver: bridge
+    name: ios-backend-network
+
+volumes:
+  postgres_data:
+    driver: local
+    name: ios-backend-postgres-data
+  redis_data:
+    driver: local
+    name: ios-backend-redis-data

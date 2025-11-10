@@ -1,0 +1,83 @@
+# Production Docker Compose Configuration
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+version: '3.9'
+
+services:
+  postgres:
+    # SECURITY: Do NOT expose database ports in production
+    ports: []  # Override development ports
+    environment:
+      # Force SSL mode in production
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8"
+    # Stricter restart policy
+    restart: on-failure:3
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '2.0'
+          memory: 1G
+    # Enable read-only root filesystem for extra security
+    read_only: false  # PostgreSQL needs to write
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+
+  redis:
+    # SECURITY: Do NOT expose Redis ports in production
+    ports: []  # Override development ports
+    restart: on-failure:3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Increase security with read-only filesystem
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  app:
+    # Build optimizations for production
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILD_ENV=production
+    environment:
+      # Override SSL mode for production
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ios_backend}?sslmode=require
+      # Production CORS (strict)
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    restart: on-failure:3
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    # Security hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    # Health check (more aggressive)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
