@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -58,7 +56,7 @@ services:
       - redis_data:/data
     healthcheck:
       # Fixed: Use password for authentication
-      test: ["CMD", "sh", "-c", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
