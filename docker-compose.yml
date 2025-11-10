@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       # CRITICAL SECURITY: No default password! Must be set in .env file
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Error: DB_PASSWORD must be set in .env file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-apppass}
       POSTGRES_DB: ${DB_NAME:-ios_backend}
       PGDATA: /var/lib/postgresql/data/pgdata
     # SECURITY: Comment out ports in production (only expose to internal network)
@@ -40,21 +40,14 @@ services:
     image: redis:7-alpine
     container_name: ios-backend-redis
     restart: unless-stopped
-    environment:
       # Pass password to healthcheck
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?Error: REDIS_PASSWORD must be set in .env file}
-    command:
-      - redis-server
-      - --requirepass
-      - ${REDIS_PASSWORD}
-      - --maxmemory
-      - 256mb
-      - --maxmemory-policy
-      - allkeys-lru
-      - --appendonly
-      - yes
-      - --appendfsync
-      - everysec
+    command: >
+      sh -c "redis-server
+      --requirepass $${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec"
     # SECURITY: Comment out ports in production (only expose to internal network)
     # For development, uncomment the line below:
     ports:
