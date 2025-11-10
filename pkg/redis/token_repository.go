@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 type TokenRepository struct {
 	client     *Client
 	keyBuilder *KeyBuilder
+	logger     Logger
 }
 
 // NewTokenRepository creates a new TokenRepository
@@ -34,7 +36,14 @@ func NewTokenRepository(client *Client) *TokenRepository {
 	return &TokenRepository{
 		client:     client,
 		keyBuilder: NewKeyBuilder(),
+		logger:     defaultLogger,
 	}
+}
+
+// WithLogger sets a custom logger for this repository
+func (r *TokenRepository) WithLogger(logger Logger) *TokenRepository {
+	r.logger = logger
+	return r
 }
 
 // StoreRefreshToken stores a refresh token in Redis with TTL
@@ -42,17 +51,37 @@ func (r *TokenRepository) StoreRefreshToken(ctx context.Context, userID int64, t
 	key := r.keyBuilder.RefreshToken(strconv.FormatInt(userID, 10), tokenID)
 	ttl := time.Until(expiresAt)
 
+	r.logger.Debug("storing refresh token",
+		zap.Int64("user_id", userID),
+		zap.String("token_id", tokenID),
+		zap.Duration("ttl", ttl),
+	)
+
 	// Safety margin to account for network latency and processing time
 	// If token expires too soon, reject it to prevent edge cases
 	if ttl <= minTokenTTL {
+		r.logger.Warn("token TTL too short",
+			zap.Int64("user_id", userID),
+			zap.Duration("ttl", ttl),
+			zap.Duration("min_ttl", minTokenTTL),
+		)
 		return fmt.Errorf("token expires too soon (TTL: %v, minimum: %v)", ttl, minTokenTTL)
 	}
 
 	// Store token hash with expiration
 	err := r.client.Set(ctx, key, tokenHash, ttl).Err()
 	if err != nil {
+		r.logger.Error("failed to store refresh token",
+			zap.Int64("user_id", userID),
+			zap.Error(err),
+		)
 		return fmt.Errorf("failed to store refresh token: %w", err)
 	}
+
+	r.logger.Info("refresh token stored successfully",
+		zap.Int64("user_id", userID),
+		zap.Duration("ttl", ttl),
+	)
 
 	return nil
 }
@@ -88,11 +117,17 @@ func (r *TokenRepository) DeleteRefreshToken(ctx context.Context, userID int64, 
 func (r *TokenRepository) DeleteAllUserTokens(ctx context.Context, userID int64) error {
 	pattern := r.keyBuilder.RefreshTokenPattern(strconv.FormatInt(userID, 10))
 
+	r.logger.Debug("deleting all user tokens",
+		zap.Int64("user_id", userID),
+		zap.String("pattern", pattern),
+	)
+
 	// Scan for all keys matching the pattern
 	// IMPORTANT: SCAN is a blocking operation, so we add context checks
 	// and limit the number of iterations to prevent infinite loops
 	var cursor uint64
 	iteration := 0
+	totalDeleted := 0
 
 	for {
 		// Check context deadline/cancellation on each iteration
@@ -120,8 +155,15 @@ func (r *TokenRepository) DeleteAllUserTokens(ctx context.Context, userID int64)
 		if len(keys) > 0 {
 			// Delete in batch
 			if err := r.client.Del(ctx, keys...).Err(); err != nil {
+				r.logger.Error("failed to delete token batch",
+					zap.Int64("user_id", userID),
+					zap.Int("iteration", iteration),
+					zap.Int("keys_count", len(keys)),
+					zap.Error(err),
+				)
 				return fmt.Errorf("failed to delete refresh tokens (iteration %d): %w", iteration, err)
 			}
+			totalDeleted += len(keys)
 		}
 
 		// Cursor 0 means we've completed the scan
@@ -129,6 +171,12 @@ func (r *TokenRepository) DeleteAllUserTokens(ctx context.Context, userID int64)
 			break
 		}
 	}
+
+	r.logger.Info("deleted all user tokens",
+		zap.Int64("user_id", userID),
+		zap.Int("total_deleted", totalDeleted),
+		zap.Int("iterations", iteration),
+	)
 
 	return nil
 }
