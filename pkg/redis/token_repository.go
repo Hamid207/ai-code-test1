@@ -9,6 +9,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const (
+	// scanBatchSize is the number of keys to retrieve per SCAN iteration
+	// Smaller batch size reduces Redis blocking time
+	scanBatchSize = 50
+
+	// maxScanIterations prevents infinite loops in SCAN operations
+	// With batch size 50, this allows scanning up to 50,000 keys
+	maxScanIterations = 1000
+
+	// minTokenTTL is the minimum TTL for token storage
+	// Provides safety margin for network latency and processing time
+	minTokenTTL = 100 * time.Millisecond
+)
+
 // TokenRepository implements repository.RedisTokenRepository
 type TokenRepository struct {
 	client     *Client
@@ -28,8 +42,10 @@ func (r *TokenRepository) StoreRefreshToken(ctx context.Context, userID int64, t
 	key := r.keyBuilder.RefreshToken(strconv.FormatInt(userID, 10), tokenID)
 	ttl := time.Until(expiresAt)
 
-	if ttl <= 0 {
-		return fmt.Errorf("token already expired")
+	// Safety margin to account for network latency and processing time
+	// If token expires too soon, reject it to prevent edge cases
+	if ttl <= minTokenTTL {
+		return fmt.Errorf("token expires too soon (TTL: %v, minimum: %v)", ttl, minTokenTTL)
 	}
 
 	// Store token hash with expiration
@@ -76,7 +92,6 @@ func (r *TokenRepository) DeleteAllUserTokens(ctx context.Context, userID int64)
 	// IMPORTANT: SCAN is a blocking operation, so we add context checks
 	// and limit the number of iterations to prevent infinite loops
 	var cursor uint64
-	const maxIterations = 1000 // Safety limit to prevent infinite loops
 	iteration := 0
 
 	for {
@@ -89,15 +104,15 @@ func (r *TokenRepository) DeleteAllUserTokens(ctx context.Context, userID int64)
 
 		// Safety check: prevent infinite loops
 		iteration++
-		if iteration > maxIterations {
-			return fmt.Errorf("exceeded maximum iterations (%d) while scanning tokens", maxIterations)
+		if iteration > maxScanIterations {
+			return fmt.Errorf("exceeded maximum iterations (%d) while scanning tokens", maxScanIterations)
 		}
 
 		var keys []string
 		var err error
 
 		// SCAN with smaller batch size to reduce blocking time
-		keys, cursor, err = r.client.Scan(ctx, cursor, pattern, 50).Result()
+		keys, cursor, err = r.client.Scan(ctx, cursor, pattern, scanBatchSize).Result()
 		if err != nil {
 			return fmt.Errorf("failed to scan refresh tokens: %w", err)
 		}

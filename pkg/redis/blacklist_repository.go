@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	// minBlacklistTTL is the minimum TTL for blacklisted tokens
+	// Provides safety margin for network latency to ensure token is blacklisted
+	minBlacklistTTL = 100 * time.Millisecond
+)
+
 // BlacklistRepository implements repository.RedisBlacklistRepository
 type BlacklistRepository struct {
 	client     *Client
@@ -26,9 +32,15 @@ func (r *BlacklistRepository) AddToBlacklist(ctx context.Context, tokenID string
 	key := r.keyBuilder.BlacklistToken(tokenID)
 	ttl := time.Until(expiresAt)
 
+	// Safety margin to account for network latency
+	// If token expires very soon, still blacklist it with minimum TTL
 	if ttl <= 0 {
 		// Token already expired, no need to blacklist
 		return nil
+	}
+	if ttl < minBlacklistTTL {
+		// Token expires very soon, use minimum TTL to ensure blacklisting
+		ttl = minBlacklistTTL
 	}
 
 	// Store a simple marker value (we only care about key existence)

@@ -9,6 +9,18 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Lua script for atomic rate limiting (package-level constant for performance)
+// This script atomically increments the counter and returns both count and TTL
+// Reducing this to a constant eliminates per-request string allocation
+const rateLimitScript = `
+	local current = redis.call('INCR', KEYS[1])
+	if current == 1 then
+		redis.call('EXPIRE', KEYS[1], ARGV[1])
+	end
+	local ttl = redis.call('TTL', KEYS[1])
+	return {current, ttl}
+`
+
 // RateLimitRepository implements repository.RedisRateLimitRepository
 type RateLimitRepository struct {
 	client     *Client
@@ -52,19 +64,10 @@ func (r *RateLimitRepository) GetIPRequestCount(ctx context.Context, ipAddress s
 // incrementRequest is a helper function that implements the rate limiting logic
 // using atomic increment with TTL
 func (r *RateLimitRepository) incrementRequest(ctx context.Context, key string, window time.Duration) (int64, time.Time, error) {
-	// Use a Lua script to atomically increment and get TTL in a single operation
+	// Use a pre-compiled Lua script (defined at package level) for better performance
 	// This prevents race conditions between INCR and TTL commands
 	// Returns: {count, ttl_seconds}
-	luaScript := `
-		local current = redis.call('INCR', KEYS[1])
-		if current == 1 then
-			redis.call('EXPIRE', KEYS[1], ARGV[1])
-		end
-		local ttl = redis.call('TTL', KEYS[1])
-		return {current, ttl}
-	`
-
-	result, err := r.client.Eval(ctx, luaScript, []string{key}, int(window.Seconds())).Result()
+	result, err := r.client.Eval(ctx, rateLimitScript, []string{key}, int(window.Seconds())).Result()
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("failed to increment request count: %w", err)
 	}

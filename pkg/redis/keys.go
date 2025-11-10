@@ -22,9 +22,20 @@ const (
 // KeyBuilder provides methods to build Redis keys consistently
 type KeyBuilder struct{}
 
+// defaultKeyBuilder is a singleton instance shared across all repositories
+// Since KeyBuilder is stateless, we can safely share a single instance
+var defaultKeyBuilder = &KeyBuilder{}
+
 // NewKeyBuilder creates a new KeyBuilder instance
+// Deprecated: Use GetKeyBuilder() for better performance
 func NewKeyBuilder() *KeyBuilder {
-	return &KeyBuilder{}
+	return defaultKeyBuilder
+}
+
+// GetKeyBuilder returns the singleton KeyBuilder instance
+// This is more efficient than creating new instances since KeyBuilder is stateless
+func GetKeyBuilder() *KeyBuilder {
+	return defaultKeyBuilder
 }
 
 // RefreshToken builds a key for storing refresh tokens
