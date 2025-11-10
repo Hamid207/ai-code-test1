@@ -55,3 +55,24 @@ func ValidateAppleID(appleID string) error {
 
 	return nil
 }
+
+// ValidateGoogleID validates Google ID format
+func ValidateGoogleID(googleID string) error {
+	if googleID == "" {
+		return fmt.Errorf("google_id is required")
+	}
+
+	// Trim spaces
+	googleID = strings.TrimSpace(googleID)
+
+	// Check length (Google IDs are typically 21 numeric digits)
+	if len(googleID) > 255 {
+		return fmt.Errorf("google_id is too long (max 255 characters)")
+	}
+
+	if len(googleID) < 10 {
+		return fmt.Errorf("google_id is too short (min 10 characters)")
+	}
+
+	return nil
+}
