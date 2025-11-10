@@ -17,6 +17,7 @@ import (
 	"github.com/Hamid207/ai-code-test1/pkg/database"
 	"github.com/Hamid207/ai-code-test1/pkg/jwt"
 	"github.com/Hamid207/ai-code-test1/pkg/logger"
+	redispkg "github.com/Hamid207/ai-code-test1/pkg/redis"
 	"github.com/gin-gonic/gin"
 	"github.com/ulule/limiter/v3"
 	mgin "github.com/ulule/limiter/v3/drivers/middleware/gin"
@@ -50,9 +51,31 @@ func main() {
 	}
 	log.Printf("Database connection established successfully (Max: %d, Min: %d)", cfg.DBMaxConns, cfg.DBMinConns)
 
+	// Initialize Redis connection
+	redisConfig := redispkg.Config{
+		Host:         cfg.RedisHost,
+		Port:         cfg.RedisPort,
+		DB:           cfg.RedisDB,
+		Password:     cfg.RedisPassword,
+		MaxConns:     cfg.RedisMaxConns,
+		MinIdleConns: cfg.RedisMinIdleConns,
+	}
+	redisClient, err := redispkg.NewClient(redisConfig)
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	log.Printf("Redis connection established successfully (Host: %s:%s, DB: %d)", cfg.RedisHost, cfg.RedisPort, cfg.RedisDB)
+
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(dbPool)
 	tokenRepo := repository.NewTokenRepository(dbPool)
+
+	// Initialize Redis repositories
+	// TODO: Integrate Redis repositories with services
+	_ = redispkg.NewTokenRepository(redisClient)
+	_ = redispkg.NewBlacklistRepository(redisClient)
+	_ = redispkg.NewRateLimitRepository(redisClient)
+	_ = redispkg.NewCacheRepository(redisClient)
 
 	// Initialize JWT token service
 	tokenService := jwt.NewTokenService(cfg.JWTSecret)
@@ -99,6 +122,12 @@ func main() {
 	// Close database pool after server shutdown
 	log.Println("Closing database connections...")
 	dbPool.Close()
+
+	// Close Redis connection
+	log.Println("Closing Redis connection...")
+	if err := redisClient.Close(); err != nil {
+		log.Printf("Error closing Redis connection: %v", err)
+	}
 
 	log.Println("Server exited gracefully")
 }

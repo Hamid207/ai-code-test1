@@ -19,6 +19,13 @@ type Config struct {
 	DBMaxConns     int32
 	DBMinConns     int32
 	JWTSecret      string
+	// Redis configuration
+	RedisHost        string
+	RedisPort        string
+	RedisDB          int
+	RedisPassword    string
+	RedisMaxConns    int
+	RedisMinIdleConns int
 }
 
 // Load reads configuration from environment variables
@@ -35,6 +42,13 @@ func Load() (*Config, error) {
 		DBMaxConns:     int32(getEnvAsInt("DB_MAX_CONNS", 25)),
 		DBMinConns:     int32(getEnvAsInt("DB_MIN_CONNS", 5)),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
+		// Redis configuration
+		RedisHost:        getEnv("REDIS_HOST", "localhost"),
+		RedisPort:        getEnv("REDIS_PORT", "6379"),
+		RedisDB:          getEnvAsInt("REDIS_DB", 0),
+		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
+		RedisMaxConns:    getEnvAsInt("REDIS_MAX_CONNS", 10),
+		RedisMinIdleConns: getEnvAsInt("REDIS_MIN_IDLE_CONNS", 2),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -58,6 +72,40 @@ func (c *Config) validate() error {
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 characters long for security")
 	}
+
+	// Redis configuration validation
+	if c.RedisHost == "" {
+		return fmt.Errorf("REDIS_HOST cannot be empty")
+	}
+	if c.RedisPort == "" {
+		return fmt.Errorf("REDIS_PORT cannot be empty")
+	}
+
+	// Validate Redis port is a valid number in range
+	port, err := strconv.Atoi(c.RedisPort)
+	if err != nil {
+		return fmt.Errorf("REDIS_PORT must be a valid number: %w", err)
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("REDIS_PORT must be between 1 and 65535, got %d", port)
+	}
+
+	// Validate Redis DB number (Redis supports 0-15 by default)
+	if c.RedisDB < 0 || c.RedisDB > 15 {
+		return fmt.Errorf("REDIS_DB must be between 0 and 15, got %d", c.RedisDB)
+	}
+
+	// Validate connection pool settings
+	if c.RedisMaxConns <= 0 {
+		return fmt.Errorf("REDIS_MAX_CONNS must be positive, got %d", c.RedisMaxConns)
+	}
+	if c.RedisMinIdleConns < 0 {
+		return fmt.Errorf("REDIS_MIN_IDLE_CONNS cannot be negative, got %d", c.RedisMinIdleConns)
+	}
+	if c.RedisMinIdleConns > c.RedisMaxConns {
+		return fmt.Errorf("REDIS_MIN_IDLE_CONNS (%d) cannot exceed REDIS_MAX_CONNS (%d)", c.RedisMinIdleConns, c.RedisMaxConns)
+	}
+
 	return nil
 }
 
