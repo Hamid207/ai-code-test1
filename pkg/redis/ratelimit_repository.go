@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // RateLimitRepository implements repository.RedisRateLimitRepository
@@ -50,14 +52,16 @@ func (r *RateLimitRepository) GetIPRequestCount(ctx context.Context, ipAddress s
 // incrementRequest is a helper function that implements the rate limiting logic
 // using atomic increment with TTL
 func (r *RateLimitRepository) incrementRequest(ctx context.Context, key string, window time.Duration) (int64, time.Time, error) {
-	// Use a Lua script to atomically increment and set TTL if key doesn't exist
-	// This ensures the TTL is set only on first request in the window
+	// Use a Lua script to atomically increment and get TTL in a single operation
+	// This prevents race conditions between INCR and TTL commands
+	// Returns: {count, ttl_seconds}
 	luaScript := `
 		local current = redis.call('INCR', KEYS[1])
 		if current == 1 then
 			redis.call('EXPIRE', KEYS[1], ARGV[1])
 		end
-		return current
+		local ttl = redis.call('TTL', KEYS[1])
+		return {current, ttl}
 	`
 
 	result, err := r.client.Eval(ctx, luaScript, []string{key}, int(window.Seconds())).Result()
@@ -65,18 +69,25 @@ func (r *RateLimitRepository) incrementRequest(ctx context.Context, key string, 
 		return 0, time.Time{}, fmt.Errorf("failed to increment request count: %w", err)
 	}
 
-	count, ok := result.(int64)
+	// Parse result array
+	resultArray, ok := result.([]interface{})
+	if !ok || len(resultArray) != 2 {
+		return 0, time.Time{}, fmt.Errorf("unexpected result format from Lua script")
+	}
+
+	count, ok := resultArray[0].(int64)
 	if !ok {
-		return 0, time.Time{}, fmt.Errorf("unexpected result type from Lua script")
+		return 0, time.Time{}, fmt.Errorf("unexpected count type from Lua script")
 	}
 
-	// Get the TTL to determine reset time
-	ttl, err := r.client.TTL(ctx, key).Result()
-	if err != nil {
-		return count, time.Time{}, fmt.Errorf("failed to get TTL: %w", err)
+	ttlSeconds, ok := resultArray[1].(int64)
+	if !ok {
+		return 0, time.Time{}, fmt.Errorf("unexpected TTL type from Lua script")
 	}
 
-	resetTime := time.Now().Add(ttl)
+	// Calculate reset time based on TTL from Redis
+	// Using time.Now() at this point is more accurate than after separate TTL call
+	resetTime := time.Now().Add(time.Duration(ttlSeconds) * time.Second)
 
 	return count, resetTime, nil
 }
@@ -86,7 +97,7 @@ func (r *RateLimitRepository) getRequestCount(ctx context.Context, key string) (
 	val, err := r.client.Get(ctx, key).Result()
 	if err != nil {
 		// Key doesn't exist means no requests yet
-		if err.Error() == "redis: nil" {
+		if err == redis.Nil {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("failed to get request count: %w", err)

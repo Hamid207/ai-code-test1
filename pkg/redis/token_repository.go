@@ -73,26 +73,43 @@ func (r *TokenRepository) DeleteAllUserTokens(ctx context.Context, userID int64)
 	pattern := r.keyBuilder.RefreshTokenPattern(strconv.FormatInt(userID, 10))
 
 	// Scan for all keys matching the pattern
+	// IMPORTANT: SCAN is a blocking operation, so we add context checks
+	// and limit the number of iterations to prevent infinite loops
 	var cursor uint64
-	var deletedCount int64
+	const maxIterations = 1000 // Safety limit to prevent infinite loops
+	iteration := 0
 
 	for {
+		// Check context deadline/cancellation on each iteration
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("operation cancelled while deleting tokens: %w", ctx.Err())
+		default:
+		}
+
+		// Safety check: prevent infinite loops
+		iteration++
+		if iteration > maxIterations {
+			return fmt.Errorf("exceeded maximum iterations (%d) while scanning tokens", maxIterations)
+		}
+
 		var keys []string
 		var err error
 
-		keys, cursor, err = r.client.Scan(ctx, cursor, pattern, 100).Result()
+		// SCAN with smaller batch size to reduce blocking time
+		keys, cursor, err = r.client.Scan(ctx, cursor, pattern, 50).Result()
 		if err != nil {
 			return fmt.Errorf("failed to scan refresh tokens: %w", err)
 		}
 
 		if len(keys) > 0 {
-			deleted, err := r.client.Del(ctx, keys...).Result()
-			if err != nil {
-				return fmt.Errorf("failed to delete refresh tokens: %w", err)
+			// Delete in batch
+			if err := r.client.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("failed to delete refresh tokens (iteration %d): %w", iteration, err)
 			}
-			deletedCount += deleted
 		}
 
+		// Cursor 0 means we've completed the scan
 		if cursor == 0 {
 			break
 		}

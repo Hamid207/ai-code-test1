@@ -25,6 +25,11 @@ type Config struct {
 
 // NewClient creates a new Redis client with connection pooling
 func NewClient(cfg Config) (*Client, error) {
+	// Validate configuration (defense in depth)
+	if err := validateConfig(cfg); err != nil {
+		return nil, fmt.Errorf("invalid Redis configuration: %w", err)
+	}
+
 	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
 
 	rdb := redis.NewClient(&redis.Options{
@@ -68,4 +73,33 @@ func (c *Client) Close() error {
 // HealthCheck performs a health check on the Redis connection
 func (c *Client) HealthCheck(ctx context.Context) error {
 	return c.Ping(ctx).Err()
+}
+
+// validateConfig validates Redis client configuration
+func validateConfig(cfg Config) error {
+	if cfg.Host == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+
+	if cfg.Port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+
+	if cfg.DB < 0 {
+		return fmt.Errorf("database number cannot be negative, got %d", cfg.DB)
+	}
+
+	if cfg.MaxConns <= 0 {
+		return fmt.Errorf("max connections must be positive, got %d", cfg.MaxConns)
+	}
+
+	if cfg.MinIdleConns < 0 {
+		return fmt.Errorf("min idle connections cannot be negative, got %d", cfg.MinIdleConns)
+	}
+
+	if cfg.MinIdleConns > cfg.MaxConns {
+		return fmt.Errorf("min idle connections (%d) cannot exceed max connections (%d)", cfg.MinIdleConns, cfg.MaxConns)
+	}
+
+	return nil
 }
