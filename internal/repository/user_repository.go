@@ -35,7 +35,7 @@ func (r *UserRepository) GetByAppleID(ctx context.Context, appleID string) (*mod
 	defer cancel()
 
 	query := `
-		SELECT id, apple_id, email, created_at, updated_at
+		SELECT id, apple_id, google_id, email, created_at, updated_at
 		FROM users
 		WHERE apple_id = $1
 	`
@@ -44,6 +44,7 @@ func (r *UserRepository) GetByAppleID(ctx context.Context, appleID string) (*mod
 	err := r.db.QueryRow(ctx, query, appleID).Scan(
 		&user.ID,
 		&user.AppleID,
+		&user.GoogleID,
 		&user.Email,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -60,6 +61,39 @@ func (r *UserRepository) GetByAppleID(ctx context.Context, appleID string) (*mod
 	return &user, nil
 }
 
+// GetByGoogleID retrieves a user by their Google ID
+func (r *UserRepository) GetByGoogleID(ctx context.Context, googleID string) (*model.User, error) {
+	// Create context with timeout to prevent hanging queries
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	query := `
+		SELECT id, apple_id, google_id, email, created_at, updated_at
+		FROM users
+		WHERE google_id = $1
+	`
+
+	var user model.User
+	err := r.db.QueryRow(ctx, query, googleID).Scan(
+		&user.ID,
+		&user.AppleID,
+		&user.GoogleID,
+		&user.Email,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil // User not found
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by google_id: %w", err)
+	}
+
+	return &user, nil
+}
+
 // Create creates a new user in the database
 func (r *UserRepository) Create(ctx context.Context, appleID, email string) (*model.User, error) {
 	// Create context with timeout to prevent hanging queries
@@ -69,13 +103,14 @@ func (r *UserRepository) Create(ctx context.Context, appleID, email string) (*mo
 	query := `
 		INSERT INTO users (apple_id, email)
 		VALUES ($1, $2)
-		RETURNING id, apple_id, email, created_at, updated_at
+		RETURNING id, apple_id, google_id, email, created_at, updated_at
 	`
 
 	var user model.User
 	err := r.db.QueryRow(ctx, query, appleID, email).Scan(
 		&user.ID,
 		&user.AppleID,
+		&user.GoogleID,
 		&user.Email,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -112,13 +147,14 @@ func (r *UserRepository) CreateOrGet(ctx context.Context, appleID, email string)
 		DO UPDATE SET
 			email = EXCLUDED.email,
 			updated_at = CURRENT_TIMESTAMP
-		RETURNING id, apple_id, email, created_at, updated_at
+		RETURNING id, apple_id, google_id, email, created_at, updated_at
 	`
 
 	var user model.User
 	err := r.db.QueryRow(ctx, query, appleID, email).Scan(
 		&user.ID,
 		&user.AppleID,
+		&user.GoogleID,
 		&user.Email,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -126,6 +162,50 @@ func (r *UserRepository) CreateOrGet(ctx context.Context, appleID, email string)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create or update user: %w", err)
+	}
+
+	return &user, nil
+}
+
+// CreateOrGetWithGoogle creates a new user or returns existing user for Google auth (atomic upsert)
+// This uses PostgreSQL's ON CONFLICT to prevent race conditions
+func (r *UserRepository) CreateOrGetWithGoogle(ctx context.Context, googleID, email string) (*model.User, error) {
+	// Validate input
+	if googleID == "" {
+		return nil, fmt.Errorf("google_id cannot be empty")
+	}
+
+	if err := validator.ValidateEmail(email); err != nil {
+		return nil, fmt.Errorf("invalid email: %w", err)
+	}
+
+	// Create context with timeout to prevent hanging queries
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	// Use PostgreSQL UPSERT to handle concurrent inserts atomically
+	query := `
+		INSERT INTO users (google_id, email)
+		VALUES ($1, $2)
+		ON CONFLICT (google_id)
+		DO UPDATE SET
+			email = EXCLUDED.email,
+			updated_at = CURRENT_TIMESTAMP
+		RETURNING id, apple_id, google_id, email, created_at, updated_at
+	`
+
+	var user model.User
+	err := r.db.QueryRow(ctx, query, googleID, email).Scan(
+		&user.ID,
+		&user.AppleID,
+		&user.GoogleID,
+		&user.Email,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or update user with google: %w", err)
 	}
 
 	return &user, nil

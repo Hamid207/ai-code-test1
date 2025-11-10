@@ -7,12 +7,14 @@ import (
 	"github.com/Hamid207/ai-code-test1/internal/model"
 	"github.com/Hamid207/ai-code-test1/internal/repository"
 	"github.com/Hamid207/ai-code-test1/pkg/apple"
+	"github.com/Hamid207/ai-code-test1/pkg/google"
 	"github.com/Hamid207/ai-code-test1/pkg/jwt"
 )
 
 // AuthService handles authentication business logic
 type AuthService struct {
 	appleVerifier   *apple.Verifier
+	googleVerifier  *google.Verifier
 	userRepository  *repository.UserRepository
 	tokenRepository *repository.TokenRepository
 	tokenService    *jwt.TokenService
@@ -20,13 +22,15 @@ type AuthService struct {
 
 // NewAuthService creates a new authentication service
 func NewAuthService(
-	clientID string,
+	appleClientID string,
+	googleClientID string,
 	userRepo *repository.UserRepository,
 	tokenRepo *repository.TokenRepository,
 	tokenService *jwt.TokenService,
 ) *AuthService {
 	return &AuthService{
-		appleVerifier:   apple.NewVerifier(clientID),
+		appleVerifier:   apple.NewVerifier(appleClientID),
+		googleVerifier:  google.NewVerifier(googleClientID),
 		userRepository:  userRepo,
 		tokenRepository: tokenRepo,
 		tokenService:    tokenService,
@@ -68,6 +72,50 @@ func (s *AuthService) SignInWithApple(ctx context.Context, req *model.AppleSignI
 	response := &model.AppleSignInResponse{
 		UserID:                user.ID,
 		AppleID:               user.AppleID,
+		Email:                 user.Email,
+		AccessToken:           tokenPair.AccessToken,
+		RefreshToken:          tokenPair.RefreshToken,
+		AccessTokenExpiresAt:  tokenPair.AccessTokenExpiresAt,
+		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
+		TokenType:             "Bearer",
+	}
+
+	return response, nil
+}
+
+// SignInWithGoogle verifies Google ID token and returns user information with JWT tokens
+func (s *AuthService) SignInWithGoogle(ctx context.Context, req *model.GoogleSignInRequest) (*model.GoogleSignInResponse, error) {
+	// Verify the ID token
+	claims, err := s.googleVerifier.VerifyIDToken(req.IDToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify token: %w", err)
+	}
+
+	// Email is already verified in the verifier (EmailVerified must be true)
+
+	// Create or get user from database
+	user, err := s.userRepository.CreateOrGetWithGoogle(ctx, claims.Subject, claims.Email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or get user: %w", err)
+	}
+
+	// Generate JWT token pair (access + refresh)
+	// Use GoogleID as the provider ID (AppleID field in JWT for backward compatibility)
+	tokenPair, err := s.tokenService.GenerateTokenPair(user.ID, user.GoogleID, user.Email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate tokens: %w", err)
+	}
+
+	// Store refresh token in database
+	err = s.tokenRepository.StoreRefreshToken(ctx, user.ID, tokenPair.RefreshToken, tokenPair.RefreshTokenExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to store refresh token: %w", err)
+	}
+
+	// Build response with tokens
+	response := &model.GoogleSignInResponse{
+		UserID:                user.ID,
+		GoogleID:              user.GoogleID,
 		Email:                 user.Email,
 		AccessToken:           tokenPair.AccessToken,
 		RefreshToken:          tokenPair.RefreshToken,

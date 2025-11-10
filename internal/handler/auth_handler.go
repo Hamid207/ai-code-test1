@@ -66,6 +66,46 @@ func (h *AuthHandler) SignInWithApple(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// SignInWithGoogle handles Google OAuth sign-in
+// @Summary Sign in with Google
+// @Description Authenticate user using Google ID token
+// @Accept json
+// @Produce json
+// @Param request body model.GoogleSignInRequest true "Google Sign In Request"
+// @Success 200 {object} model.GoogleSignInResponse
+// @Failure 400 {object} model.ErrorResponse
+// @Failure 401 {object} model.ErrorResponse
+// @Failure 500 {object} model.ErrorResponse
+// @Router /auth/google [post]
+func (h *AuthHandler) SignInWithGoogle(c *gin.Context) {
+	var req model.GoogleSignInRequest
+
+	// Bind and validate request
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Error:   "invalid_request",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Process authentication
+	response, err := h.authService.SignInWithGoogle(c.Request.Context(), &req)
+	if err != nil {
+		// Log internal error for debugging (do not expose to client)
+		log.Printf("Google authentication failed: %v", err)
+
+		// Return generic error message to prevent information disclosure
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{
+			Error:   "authentication_failed",
+			Message: "Invalid or expired token",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 // RefreshToken handles JWT token refresh
 // @Summary Refresh access token
 // @Description Generate a new access token using a valid refresh token
