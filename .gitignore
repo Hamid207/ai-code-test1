@@ -16,8 +16,14 @@ dist/
 # Go workspace file
 go.work
 
-# Environment variables
+# Environment variables (CRITICAL: Never commit these!)
 .env
+.env.local
+.env.*.local
+.env.development
+.env.staging
+.env.production
+*.env
 
 # IDE
 .vscode/
@@ -29,3 +35,14 @@ go.work
 # OS
 .DS_Store
 Thumbs.db
+
+# Apple Private Keys (CRITICAL: Never commit these!)
+*.p8
+AuthKey_*.p8
+configs/*.p8
+
+# API Keys and Secrets
+*.key
+*.pem
+secrets/
+credentials/
